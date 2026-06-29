@@ -1,0 +1,485 @@
+{
+    "workflow": "milk_entry",
+    "version": "2.2",
+    "initialState": "authenticate",
+    "states": {
+        "greetBot": {
+            "actor": "user",
+            "type": "prompt",
+            "prompt": [
+                "Hi",
+                "Hello"
+            ],
+            "messageKey": "greetMessage",
+            "transitions": {
+                "default": "authenticate"
+            },
+            "description": "[Step 1: User sends Hi/Hello message to the bot]"
+        },
+        "authenticate": {
+            "actor": "bot",
+            "type": "action",
+            "action": "authenticateUser",
+            "transitions": {
+                "authorized": "welcome",
+                "unauthorized": "unauthorized"
+            },
+            "description": "[Step 2: Initialization & Authentication] Checks if phone number exists in MySQL 'users' table. Transitions to welcome state if registered, otherwise to unauthorized terminal state."
+        },
+        "unauthorized": {
+            "actor": "bot",
+            "type": "message",
+            "message": [
+                "Unauthorized access! Please contact admin!"
+            ],
+            "messageKey": "unauthorizedMessage",
+            "termination": true,
+            "transitions": {
+                "default": "greetBot"
+            },
+            "description": "[Step 1: Initialization & Authentication] Terminal state. Sends authorization rejection message and ends session."
+        },
+        "welcome": {
+            "actor": "bot",
+            "type": "action",
+            "action": "renderUI",
+            "message": {
+                "text": [
+                    "Welcome to Anand Dairy Please select language"
+                ],
+                "buttons": [
+                    {
+                        "label": "English",
+                        "value": "lang_en"
+                    },
+                    {
+                        "label": "Marathi",
+                        "value": "lang_mr"
+                    }
+                ]
+            },
+            "messageKey": "welcomeMessage",
+            "transitions": {
+                "default": "showLanguageSelection"
+            },
+            "description": "[Step 2: Initialization & Authentication] Sends welcome greeting (e.g. Welcome to Anand Dairy Farm!) and auto-advances to Step 2 (Language Selection)."
+        },
+        "showLanguageSelection": {
+            "actor": "user",
+            "type": "prompt",
+            "prompt": [
+                "lang_en",
+                "lang_mr"
+            ],
+            "messageKey": "languagePrompt",
+            "transitions": {
+                "default": "setLanguage"
+            },
+            "errorMessageKey": "languageInvalid",
+            "description": "[Step 3: Language Selection] Sends quick reply buttons (English / Marathi). Clicking a button returns payload 'lang_en' or 'lang_mr'."
+        },
+        "setLanguage": {
+            "actor": "bot",
+            "type": "action",
+            "action": "setSelectedLanguage",
+            "params": {
+                "lang": "en/mr"
+            },
+            "transitions": {
+                "default": "mainMenu"
+            },
+            "description": "[Step 2: Language Selection] Sets session language to selected language and advances to Step 3 (Main Menu)."
+        },
+        "mainMenu": {
+            "actor": "bot",
+            "type": "action",
+            "action": "renderUI",
+            "message": {
+                "text": [
+                    "Please Select Entry type:"
+                ],
+                "buttons": [
+                    {
+                        "label": "Add Milk Production",
+                        "value": "addMilkProduction"
+                    },
+                    {
+                        "label": "Add Milk Consumption",
+                        "value": "addMilkConsumption"
+                    }
+                ]
+            },
+            "messageKey": "mainMenuPrompt",
+            "transitions": {
+                "default": "entryTypeSelection"
+            },
+            "errorMessageKey": "mainMenuInvalid",
+            "description": "[Step 3: Main Menu] Sends main menu options as buttons. Clicking 'Add Milk Production' or 'Add Milk Consumption' routes the user to their respective date selection states."
+        },
+        "entryTypeSelection": {
+            "actor": "user",
+            "type": "prompt",
+            "prompt": [
+                "addMilkProduction",
+                "addMilkConsumption"
+            ],
+            "messageKey": "entryTypePrompt",
+            "transitions": {
+                "default": "setEntryType"
+            },
+            "errorMessageKey": "entryTypeInvalid",
+            "description": "[Step 3: Entry Type Selection] Waits for user selection of Add Milk Production or Add Milk Consumption."
+        },
+        "setEntryType": {
+            "actor": "bot",
+            "type": "action",
+            "action": "setSelectedEntryType",
+            "params": {
+                "entryType": "addMilkProduction/addMilkConsumption"
+            },
+            "transitions": {
+                "addMilkProduction": "showDateSelection",
+                "addMilkConsumption": "dateSelectionConsumption"
+            },
+            "description": "[Step 3: Set Entry Type] Sets selected entry type in session and routes user to corresponding date selection state."
+        },
+        "showDateSelection": {
+            "actor": "bot",
+            "type": "action",
+            "action": "renderUI",
+            "message": {
+                "text": [
+                    "Please Select Date Type:"
+                ],
+                "buttons": [
+                    {
+                        "label": "Yesterday",
+                        "value": "yesterday"
+                    },
+                    {
+                        "label": "Today",
+                        "value": "today"
+                    },
+                    {
+                        "label": "Enter Past Date",
+                        "value": "pastDate"
+                    }
+                ]
+            },
+            "messageKey": "dateSelectionPrompt",
+            "transitions": {
+                "default": "dateSelection"
+            },
+            "errorMessageKey": "dateSelectionInvalid",
+            "description": "[Step 3: Show Date Selection (Production)] Sends quick reply buttons (Yesterday, Today, Enter Past Date) for milk production entry."
+        },
+        "dateSelection": {
+            "actor": "user",
+            "type": "prompt",
+            "prompt": [
+                "yesterday",
+                "today",
+                "pastDate"
+            ],
+            "messageKey": "dateSelectionPrompt",
+            "transitions": {
+                "default": "setDate"
+            },
+            "errorMessageKey": "dateSelectionInvalid",
+            "description": "[Step 3: Date Selection (Production)] Prompts the user to select today, yesterday, or a past date for milk production entry."
+        },
+        "setDate": {
+            "actor": "bot",
+            "type": "action",
+            "action": "setSelectedDate",
+            "params": {
+                "date": "yesterday/today/pastDate"
+            },
+            "transitions": {
+                "yesterday": "setYesterdayDate",
+                "today": "setTodayDate",
+                "pastDate": "enterPastDate"
+            },
+            "description": "[Step 3: Set Selected Date (Production)] Determines which date selection action to execute based on yesterday, today, or past date choice."
+        },
+        "setTodayDate": {
+            "actor": "bot",
+            "type": "action",
+            "action": "setTodayDate",
+            "transitions": {
+                "default": "showMilkEntry"
+            },
+            "description": "[Step 3: Set Date (Production)] Sets the production date to today in IST and auto-advances to the entry prompt."
+        },
+        "setYesterdayDate": {
+            "actor": "bot",
+            "type": "action",
+            "action": "setYesterdayDate",
+            "transitions": {
+                "default": "showMilkEntry"
+            },
+            "description": "[Step 3: Set Date (Production)] Sets the production date to yesterday in IST and auto-advances to the entry prompt."
+        },
+        "enterPastDate": {
+            "actor": "user",
+            "type": "input",
+            "messageKey": "pastDatePrompt",
+            "action": "validateAndSetDate",
+            "transitions": {
+                "valid": "setPastDate",
+                "invalid": "enterPastDate"
+            },
+            "description": "[Step 3: Enter Past Date (Production)] Waits for manual date input in DD/MM/YYYY format, validates it, and sets the date."
+        },
+        "setPastDate": {
+            "actor": "bot",
+            "type": "action",
+            "action": "setEnteredPastDate",
+            "params": {
+                "date": "DDMMYYYY"
+            },
+            "transitions": {
+                "default": "showMilkEntry"
+            },
+            "description": "[Step 3: Set Entered Past Date (Production)] Sets the verified manual past date in the session and proceeds to milk entry."
+        },
+        "showMilkEntry": {
+            "actor": "bot",
+            "type": "message",
+            "message": [
+                "You can now add milk production data. Please use the format below:\n\nCow Name, M = X, E = Y\n\nExample:\nGauri, M = 8, E = 6\nLaxmi, Morning Milk = 0, Evening Milk = 5"
+            ],
+            "messageKey": "milkEntryFormat",
+            "transitions": {
+                "default": "milkEntryInput"
+            },
+            "description": "[Step 4: Milk Data Entry Prompt] Sends the format instruction and example for cow entries."
+        },
+        "milkEntryInput": {
+            "actor": "user",
+            "type": "input",
+            "action": "parseMilkProductionEntries",
+            "transitions": {
+                "valid": "reviewSummary",
+                "invalid": "milkEntryInput"
+            },
+            "description": "[Step 4: Milk Data Entry Input] Waits for user text input, parses the entries, resolves cow IDs, and saves to session."
+        },
+        "reviewSummary": {
+            "actor": "bot",
+            "type": "action",
+            "action": "renderUI",
+            "message": {
+                "text": [
+                    "Your entries :Gouri, M=Y, E=X"
+                ],
+                "buttons": [
+                    {
+                        "label": "Confirm & Submit",
+                        "value": "confirmSubmit"
+                    },
+                    {
+                        "label": "Edit an Entry",
+                        "value": "editEntry"
+                    }
+                ]
+            },
+            "transitions": {
+                "confirmSubmit": "submitData",
+                "editEntry": "editEntryInput"
+            },
+            "description": "[Step 5: Review Summary (Production)] Generates a text summary of the entered production records."
+        },
+        "editEntryInput": {
+            "actor": "user",
+            "type": "input",
+            "messageKey": "editEntryPrompt",
+            "action": "parseAndUpdateEntries",
+            "transitions": {
+                "default": "reviewSummary"
+            },
+            "description": "[Step 5: Edit Entry (Production)] Waits for user correction input, updates the matched records, and returns to summary."
+        },
+        "submitData": {
+            "actor": "bot",
+            "type": "action",
+            "action": "submitToBackend",
+            "transitions": {
+                "success": "submissionSuccess",
+                "failure": "submissionFailure"
+            },
+            "description": "[Step 6: Submit Data (Production)] Action to insert/update the records in the backend database and clear the session."
+        },
+        "submissionSuccess": {
+            "actor": "bot",
+            "type": "message",
+            "message": [
+                "Milk production data successfully recorded! Thank you!"
+            ],
+            "messageKey": "submissionSuccess",
+            "termination": true,
+            "description": "[Step 6: Submission Success (Production)] Terminal state. Sends a success confirmation message."
+        },
+        "submissionFailure": {
+            "actor": "bot",
+            "type": "message",
+            "message": [
+                "Submission failed. Please try again or contact your dairy administrator."
+            ],
+            "messageKey": "submissionFailure",
+            "transitions": {
+                "default": "reviewSummary"
+            },
+            "description": "[Step 6: Submission Failure (Production)] Notifies user of DB error and returns to confirm/edit screen."
+        },
+        "dateSelectionConsumption": {
+            "actor": "user",
+            "type": "prompt",
+            "buttons": [
+                {
+                    "label": "Today",
+                    "value": "dateTodayConsumption"
+                },
+                {
+                    "label": "Yesterday",
+                    "value": "dateYesterdayConsumption"
+                },
+                {
+                    "label": "Enter Past Date",
+                    "value": "datePastConsumption"
+                }
+            ],
+            "messageKey": "dateSelectionPrompt",
+            "transitions": {
+                "dateTodayConsumption": "setTodayDateConsumption",
+                "dateYesterdayConsumption": "setYesterdayDateConsumption",
+                "datePastConsumption": "enterPastDateConsumption"
+            },
+            "errorMessageKey": "dateSelectionInvalid",
+            "description": "[Step 3: Date Selection (Consumption)] Prompts the user to select today, yesterday, or a past date for milk utilization entry."
+        },
+        "setTodayDateConsumption": {
+            "actor": "bot",
+            "type": "action",
+            "action": "setTodayDateConsumption",
+            "transitions": {
+                "default": "consumptionEntryPrompt"
+            },
+            "description": "[Step 3: Set Date (Consumption)] Sets the consumption date to today in IST and auto-advances to the entry prompt."
+        },
+        "setYesterdayDateConsumption": {
+            "actor": "bot",
+            "type": "action",
+            "action": "setYesterdayDateConsumption",
+            "transitions": {
+                "default": "consumptionEntryPrompt"
+            },
+            "description": "[Step 3: Set Date (Consumption)] Sets the consumption date to yesterday in IST and auto-advances to the entry prompt."
+        },
+        "enterPastDateConsumption": {
+            "actor": "user",
+            "type": "input",
+            "messageKey": "pastDatePrompt",
+            "action": "validateAndSetDateConsumption",
+            "transitions": {
+                "valid": "consumptionEntryPrompt",
+                "invalid": "enterPastDateConsumption"
+            },
+            "description": "[Step 3: Enter Past Date (Consumption)] Waits for manual date input in DD/MM/YYYY format, validates it, and sets the date."
+        },
+        "consumptionEntryPrompt": {
+            "actor": "bot",
+            "type": "message",
+            "message": [
+                "You can now add milk consumption/utilization data. Please use the format below:\n\nPurpose = Quantity\n\nExample:\nLocal Sale = 15\nCalf Feeding = 5"
+            ],
+            "messageKey": "consumptionEntryFormat",
+            "transitions": {
+                "default": "consumptionEntryInput"
+            },
+            "description": "[Step 4: Milk Consumption Entry Prompt] Sends the format instruction and example for milk utilization entries."
+        },
+        "consumptionEntryInput": {
+            "actor": "user",
+            "type": "input",
+            "action": "parseMilkConsumptionEntries",
+            "transitions": {
+                "valid": "reviewSummaryConsumption",
+                "invalid": "consumptionEntryInput"
+            },
+            "description": "[Step 4: Milk Consumption Entry Input] Waits for user text input, parses the utilization purpose and quantity, and saves to session."
+        },
+        "reviewSummaryConsumption": {
+            "actor": "bot",
+            "type": "action",
+            "action": "displayConsumptionSummary",
+            "transitions": {
+                "default": "confirmOrEditConsumption"
+            },
+            "description": "[Step 5: Review Summary (Consumption)] Generates a text summary of the entered consumption records."
+        },
+        "confirmOrEditConsumption": {
+            "actor": "user",
+            "type": "prompt",
+            "buttons": [
+                {
+                    "label": "Confirm & Submit",
+                    "value": "confirmSubmitConsumption"
+                },
+                {
+                    "label": "Edit an Entry",
+                    "value": "editConsumptionEntry"
+                }
+            ],
+            "messageKey": "confirmEditPrompt",
+            "transitions": {
+                "confirmSubmitConsumption": "submitConsumptionData",
+                "editConsumptionEntry": "editConsumptionEntry"
+            },
+            "description": "[Step 5: Confirm or Edit (Consumption)] Asks the user to submit or modify their consumption entries."
+        },
+        "editConsumptionEntry": {
+            "actor": "user",
+            "type": "input",
+            "messageKey": "editEntryPrompt",
+            "action": "parseAndUpdateConsumptionEntries",
+            "transitions": {
+                "valid": "reviewSummaryConsumption",
+                "invalid": "editConsumptionEntry"
+            },
+            "description": "[Step 5: Edit Entry (Consumption)] Waits for user correction input, updates the matched records, and returns to summary."
+        },
+        "submitConsumptionData": {
+            "actor": "bot",
+            "type": "action",
+            "action": "submitConsumptionToBackend",
+            "transitions": {
+                "success": "submissionSuccessConsumption",
+                "failure": "submissionFailureConsumption"
+            },
+            "description": "[Step 6: Submit Data (Consumption)] Action to insert/update the records in the backend milk_utilization table and clear the session."
+        },
+        "submissionSuccessConsumption": {
+            "actor": "bot",
+            "type": "message",
+            "message": [
+                "Milk consumption data successfully recorded! Thank you!"
+            ],
+            "messageKey": "submissionSuccess",
+            "termination": true,
+            "description": "[Step 6: Submission Success (Consumption)] Terminal state. Sends a success confirmation message."
+        },
+        "submissionFailureConsumption": {
+            "actor": "bot",
+            "type": "message",
+            "message": [
+                "Submission failed. Please try again or contact your dairy administrator."
+            ],
+            "messageKey": "submissionFailure",
+            "transitions": {
+                "default": "confirmOrEditConsumption"
+            },
+            "description": "[Step 6: Submission Failure (Consumption)] Notifies user of DB error and returns to confirm/edit screen."
+        }
+    }
+}
