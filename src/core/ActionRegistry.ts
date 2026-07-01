@@ -1,13 +1,14 @@
-import { IActionRegistry, IActionHandler } from "./interfaces";
+import { ActionRegistry, ActionHandler } from "./interfaces";
 
-export class ActionRegistry implements IActionRegistry {
-  private registry: Map<string, IActionHandler> = new Map();
+export function createActionRegistry(): ActionRegistry {
+  const registry = new Map<string, ActionHandler>();
 
-  public register(name: string, handler: IActionHandler): void {
-    this.registry.set(name, handler);
-  }
-
-  public get(name: string): IActionHandler | null {
-    return this.registry.get(name) || null;
-  }
+  return {
+    register(name: string, handler: ActionHandler): void {
+      registry.set(name, handler);
+    },
+    get(name: string): ActionHandler | null {
+      return registry.get(name) || null;
+    }
+  };
 }

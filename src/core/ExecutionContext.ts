@@ -1,34 +1,38 @@
-export class ExecutionContext {
-  public readonly phone_number: string;
-  public session_data: Record<string, any>;
-  public readonly user_input: string | null;
-  public readonly button_payload: string | null;
-  public language: string;
-  public messages: Array<any> = [];
+export interface ExecutionContext {
+  readonly phoneNumber: string;
+  sessionData: Record<string, any>;
+  readonly userInput: string | null;
+  readonly buttonPayload: string | null;
+  language: string;
+  readonly messages: Array<any>;
+  updateData(data: Record<string, any>): void;
+  addMessage(payload: any): void;
+  getLanguage(): string;
+}
 
-  constructor(
-    phone_number: string,
-    session_data: Record<string, any>,
-    user_input: string | null,
-    button_payload: string | null,
-    language: string
-  ) {
-    this.phone_number = phone_number;
-    this.session_data = session_data;
-    this.user_input = user_input;
-    this.button_payload = button_payload;
-    this.language = language;
-  }
-
-  public updateData(data: Record<string, any>): void {
-    this.session_data = { ...this.session_data, ...data };
-  }
-
-  public addMessage(payload: any): void {
-    this.messages.push(payload);
-  }
-
-  public getLanguage(): string {
-    return this.language;
-  }
+export function createExecutionContext(
+  phoneNumber: string,
+  sessionData: Record<string, any>,
+  userInput: string | null,
+  buttonPayload: string | null,
+  language: string
+): ExecutionContext {
+  const context: ExecutionContext = {
+    phoneNumber,
+    sessionData: { ...sessionData },
+    userInput,
+    buttonPayload,
+    language,
+    messages: [],
+    updateData(data: Record<string, any>): void {
+      context.sessionData = { ...context.sessionData, ...data };
+    },
+    addMessage(payload: any): void {
+      context.messages.push(payload);
+    },
+    getLanguage(): string {
+      return context.language;
+    }
+  };
+  return context;
 }

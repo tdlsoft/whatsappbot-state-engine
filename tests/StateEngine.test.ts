@@ -1,7 +1,7 @@
-import { StateEngine } from "../src/core/StateEngine";
-import { ActionRegistry } from "../src/core/ActionRegistry";
-import { UIResolver } from "../src/core/UIResolver";
-import { Session, ISessionRepository, IUserPreferenceRepository, ITranslationProvider, UserPreferences, IActionHandler, ActionResponse } from "../src/core/interfaces";
+import { createStateEngine, StateEngine } from "../src/core/StateEngine";
+import { createActionRegistry } from "../src/core/ActionRegistry";
+import { createUIResolver, UIResolver } from "../src/core/UIResolver";
+import { Session, SessionRepository, UserPreferenceRepository, TranslationProvider, UserPreferences, ActionResponse, ActionRegistry } from "../src/core/interfaces";
 import { ExecutionContext } from "../src/core/ExecutionContext";
 import * as workflowConfig from "../workflows/anand-dairy.json";
 
@@ -48,11 +48,11 @@ function validateDate(dateStr: string): string | null {
 
 // --- Local Parsing Helpers ---
 
-function parseProductionLine(line: string): { cow_name: string; morning: number; evening: number } | null {
+function parseProductionLine(line: string): { cowName: string; morning: number; evening: number } | null {
   const parts = line.split(",");
   if (parts.length < 2) return null;
-  const cow_name = parts[0].trim();
-  if (!cow_name) return null;
+  const cowName = parts[0].trim();
+  if (!cowName) return null;
 
   let morning = 0;
   let evening = 0;
@@ -66,7 +66,7 @@ function parseProductionLine(line: string): { cow_name: string; morning: number;
   if (morningMatch) morning = parseFloat(morningMatch[1]);
   if (eveningMatch) evening = parseFloat(eveningMatch[1]);
 
-  return { cow_name, morning, evening };
+  return { cowName, morning, evening };
 }
 
 function parseConsumptionLine(line: string): { purpose: string; quantity: number } | null {
@@ -82,7 +82,7 @@ function parseConsumptionLine(line: string): { purpose: string; quantity: number
 function mergeProductionEntries(existing: any[] = [], newEntries: any[]): any[] {
   const merged = [...existing];
   for (const entry of newEntries) {
-    const idx = merged.findIndex(e => e.cow_name.toLowerCase() === entry.cow_name.toLowerCase());
+    const idx = merged.findIndex(e => e.cowName.toLowerCase() === entry.cowName.toLowerCase());
     if (idx > -1) {
       merged[idx] = { ...merged[idx], ...entry };
     } else {
@@ -108,289 +108,257 @@ function mergeConsumptionEntries(existing: any[] = [], newEntries: any[]): any[]
 // --- In-Memory Mock Database ---
 
 const mockUsers = [
-  { id: 1, phone_number: "+919876543210", userName: "Ramesh", dairy_id: 1, isActive: true }
+  { id: 1, phoneNumber: "+919876543210", userName: "Ramesh", dairyId: 1, isActive: true }
 ];
 
 let livestockRows = [
-  { id: 101, name: "Gauri", num: "Gauri", dairy_id: 1 },
-  { id: 102, name: "Laxmi", num: "Laxmi", dairy_id: 1 }
+  { id: 101, name: "Gauri", num: "Gauri", dairyId: 1 },
+  { id: 102, name: "Laxmi", num: "Laxmi", dairyId: 1 }
 ];
 
 let productionRows: any[] = [];
 let utilizationRows: any[] = [];
-let sessionStore = new Map<string, Session>();
-let preferencesStore = new Map<string, UserPreferences>();
+const sessionStore = new Map<string, Session>();
+const preferencesStore = new Map<string, UserPreferences>();
 
 function resetMockDb() {
   productionRows = [];
   utilizationRows = [];
   livestockRows = [
-    { id: 101, name: "Gauri", num: "Gauri", dairy_id: 1 },
-    { id: 102, name: "Laxmi", num: "Laxmi", dairy_id: 1 }
+    { id: 101, name: "Gauri", num: "Gauri", dairyId: 1 },
+    { id: 102, name: "Laxmi", num: "Laxmi", dairyId: 1 }
   ];
   sessionStore.clear();
   preferencesStore.clear();
 }
 
-// --- Local Implementations of Handlers ---
+// --- Local Implementations of Handlers as Functions ---
 
-class AuthenticateUserHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    const matched = mockUsers.find(u => u.phone_number === ctx.phone_number && u.isActive);
-    if (matched) {
-      return {
-        transition: "authorized",
-        updatedData: {
-          userName: matched.userName,
-          dairy_id: matched.dairy_id
-        }
-      };
-    }
-    return { transition: "unauthorized" };
-  }
-}
-
-class SetLanguageHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext, params?: any): Promise<ActionResponse> {
-    return { transition: "default", updatedData: { language: params?.lang || "en" } };
-  }
-}
-
-class SetTodayDateProductionHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    return { transition: "default", updatedData: { entry_date: getIstDateString(0) } };
-  }
-}
-
-class SetYesterdayDateProductionHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    return { transition: "default", updatedData: { entry_date: getIstDateString(-1) } };
-  }
-}
-
-class ValidateAndSetDateProductionHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    const input = ctx.user_input;
-    if (!input) return { transition: "invalid" };
-    const valid = validateDate(input);
-    if (valid) return { transition: "valid", updatedData: { entry_date: valid } };
-    return { transition: "invalid" };
-  }
-}
-
-class ParseMilkProductionEntriesHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    const input = ctx.user_input;
-    if (!input) return { transition: "invalid" };
-
-    const lines = input.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-    const parsedEntries: any[] = [];
-    for (const line of lines) {
-      const parsed = parseProductionLine(line);
-      if (!parsed) return { transition: "invalid" };
-      parsedEntries.push(parsed);
-    }
-    const current = ctx.session_data.milk_entries || [];
-    return { transition: "valid", updatedData: { milk_entries: mergeProductionEntries(current, parsedEntries) } };
-  }
-}
-
-class DisplayProductionSummaryHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    const entries = ctx.session_data.milk_entries || [];
-    const date = ctx.session_data.entry_date || getIstDateString(0);
-    const lang = ctx.language;
-
-    let body = (lang === "mr" ? `${date} चे नोंदी तपासा:` : `Please review your entries for ${date}:`) + "\n\n";
-    if (entries.length === 0) {
-      body += (lang === "mr" ? "कोणतीही नोंद आढळली नाही." : "No entries recorded.");
-    } else {
-      entries.forEach((e: any, idx: number) => {
-        if (lang === "mr") {
-          body += `${idx + 1}. ${e.cow_name} — सकाळ: ${e.morning}L, संध्याकाळ: ${e.evening}L\n`;
-        } else {
-          body += `${idx + 1}. ${e.cow_name} — Morning: ${e.morning}L, Evening: ${e.evening}L\n`;
-        }
-      });
-    }
-
-    ctx.addMessage({ type: "text", text: { body: body.trim() } });
-    return { transition: "default" };
-  }
-}
-
-class ParseAndUpdateProductionEntriesHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    const input = ctx.user_input;
-    if (!input) return { transition: "invalid" };
-
-    const lines = input.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-    const parsedEntries: any[] = [];
-    for (const line of lines) {
-      const parsed = parseProductionLine(line);
-      if (!parsed) return { transition: "invalid" };
-      parsedEntries.push(parsed);
-    }
-    const current = ctx.session_data.milk_entries || [];
-    return { transition: "valid", updatedData: { milk_entries: mergeProductionEntries(current, parsedEntries) } };
-  }
-}
-
-class SubmitProductionToBackendHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    const entries = ctx.session_data.milk_entries || [];
-    const entryDateStr = ctx.session_data.entry_date;
-    const dairyId = ctx.session_data.dairy_id;
-
-    if (!entryDateStr || !dairyId || entries.length === 0) {
-      return { transition: "failure" };
-    }
-
-    for (const entry of entries) {
-      let cow = livestockRows.find(c => c.name.toLowerCase() === entry.cow_name.toLowerCase() && c.dairy_id === dairyId);
-      if (!cow) {
-        cow = { id: livestockRows.length + 101, name: entry.cow_name, num: entry.cow_name, dairy_id: dairyId };
-        livestockRows.push(cow);
+const authenticateUser = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  const matched = mockUsers.find(u => u.phoneNumber === ctx.phoneNumber && u.isActive);
+  if (matched) {
+    return {
+      transition: "authorized",
+      updatedData: {
+        userName: matched.userName,
+        dairyId: matched.dairyId
       }
-      productionRows.push({
-        cowid: cow.id,
-        productionDate: entryDateStr,
-        morning: String(entry.morning),
-        evening: String(entry.evening),
-        milkType: "White"
-      });
+    };
+  }
+  return { transition: "unauthorized" };
+};
+
+const setLanguage = async (ctx: ExecutionContext, params?: any): Promise<ActionResponse> => {
+  return { transition: "default", updatedData: { language: params?.lang || "en" } };
+};
+
+const setTodayDateProduction = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  return { transition: "default", updatedData: { entryDate: getIstDateString(0) } };
+};
+
+const setYesterdayDateProduction = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  return { transition: "default", updatedData: { entryDate: getIstDateString(-1) } };
+};
+
+const validateAndSetDateProduction = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  const input = ctx.userInput;
+  if (!input) return { transition: "invalid" };
+  const valid = validateDate(input);
+  if (valid) return { transition: "valid", updatedData: { entryDate: valid } };
+  return { transition: "invalid" };
+};
+
+const parseMilkProductionEntries = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  const input = ctx.userInput;
+  if (!input) return { transition: "invalid" };
+
+  const lines = input.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  const parsedEntries: any[] = [];
+  for (const line of lines) {
+    const parsed = parseProductionLine(line);
+    if (!parsed) return { transition: "invalid" };
+    parsedEntries.push(parsed);
+  }
+  const current = ctx.sessionData.milkEntries || [];
+  return { transition: "valid", updatedData: { milkEntries: mergeProductionEntries(current, parsedEntries) } };
+};
+
+const displayProductionSummary = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  const entries = ctx.sessionData.milkEntries || [];
+  const date = ctx.sessionData.entryDate || getIstDateString(0);
+  const lang = ctx.language;
+
+  let body = (lang === "mr" ? `${date} चे नोंदी तपासा:` : `Please review your entries for ${date}:`) + "\n\n";
+  if (entries.length === 0) {
+    body += (lang === "mr" ? "कोणतीही नोंद आढळली नाही." : "No entries recorded.");
+  } else {
+    entries.forEach((e: any, idx: number) => {
+      if (lang === "mr") {
+        body += `${idx + 1}. ${e.cowName} — सकाळ: ${e.morning}L, संध्याकाळ: ${e.evening}L\n`;
+      } else {
+        body += `${idx + 1}. ${e.cowName} — Morning: ${e.morning}L, Evening: ${e.evening}L\n`;
+      }
+    });
+  }
+
+  ctx.addMessage({ type: "text", text: { body: body.trim() } });
+  return { transition: "default" };
+};
+
+const parseAndUpdateProductionEntries = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  const input = ctx.userInput;
+  if (!input) return { transition: "invalid" };
+
+  const lines = input.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  const parsedEntries: any[] = [];
+  for (const line of lines) {
+    const parsed = parseProductionLine(line);
+    if (!parsed) return { transition: "invalid" };
+    parsedEntries.push(parsed);
+  }
+  const current = ctx.sessionData.milkEntries || [];
+  return { transition: "valid", updatedData: { milkEntries: mergeProductionEntries(current, parsedEntries) } };
+};
+
+const submitProductionToBackend = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  const entries = ctx.sessionData.milkEntries || [];
+  const entryDateStr = ctx.sessionData.entryDate;
+  const dairyId = ctx.sessionData.dairyId;
+
+  if (!entryDateStr || !dairyId || entries.length === 0) {
+    return { transition: "failure" };
+  }
+
+  for (const entry of entries) {
+    let cow = livestockRows.find(c => c.name.toLowerCase() === entry.cowName.toLowerCase() && c.dairyId === dairyId);
+    if (!cow) {
+      cow = { id: livestockRows.length + 101, name: entry.cowName, num: entry.cowName, dairyId: dairyId };
+      livestockRows.push(cow);
     }
-    return { transition: "success" };
+    productionRows.push({
+      cowid: cow.id,
+      productionDate: entryDateStr,
+      morning: String(entry.morning),
+      evening: String(entry.evening),
+      milkType: "White"
+    });
   }
-}
+  return { transition: "success" };
+};
 
-class SetTodayDateConsumptionHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    return { transition: "default", updatedData: { entry_date: getIstDateString(0) } };
+const setTodayDateConsumption = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  return { transition: "default", updatedData: { entryDate: getIstDateString(0) } };
+};
+
+const setYesterdayDateConsumption = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  return { transition: "default", updatedData: { entryDate: getIstDateString(-1) } };
+};
+
+const validateAndSetDateConsumption = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  const input = ctx.userInput;
+  if (!input) return { transition: "invalid" };
+  const valid = validateDate(input);
+  if (valid) return { transition: "valid", updatedData: { entryDate: valid } };
+  return { transition: "invalid" };
+};
+
+const parseMilkConsumptionEntries = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  const input = ctx.userInput;
+  if (!input) return { transition: "invalid" };
+
+  const lines = input.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  const parsedEntries: any[] = [];
+  for (const line of lines) {
+    const parsed = parseConsumptionLine(line);
+    if (!parsed) return { transition: "invalid" };
+    parsedEntries.push(parsed);
   }
-}
+  const current = ctx.sessionData.consumptionEntries || [];
+  return { transition: "valid", updatedData: { consumptionEntries: mergeConsumptionEntries(current, parsedEntries) } };
+};
 
-class SetYesterdayDateConsumptionHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    return { transition: "default", updatedData: { entry_date: getIstDateString(-1) } };
+const displayConsumptionSummary = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  const entries = ctx.sessionData.consumptionEntries || [];
+  const date = ctx.sessionData.entryDate || getIstDateString(0);
+  const lang = ctx.language;
+
+  let body = (lang === "mr" ? `${date} चे वापर नोंदी तपासा:` : `Please review your consumption entries for ${date}:`) + "\n\n";
+  if (entries.length === 0) {
+    body += (lang === "mr" ? "कोणतीही नोंद आढळली नाही." : "No entries recorded.");
+  } else {
+    entries.forEach((e: any, idx: number) => {
+      body += `${idx + 1}. ${e.purpose} — ${e.quantity}L\n`;
+    });
   }
-}
 
-class ValidateAndSetDateConsumptionHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    const input = ctx.user_input;
-    if (!input) return { transition: "invalid" };
-    const valid = validateDate(input);
-    if (valid) return { transition: "valid", updatedData: { entry_date: valid } };
-    return { transition: "invalid" };
+  ctx.addMessage({ type: "text", text: { body: body.trim() } });
+  return { transition: "default" };
+};
+
+const parseAndUpdateConsumptionEntries = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  const input = ctx.userInput;
+  if (!input) return { transition: "invalid" };
+
+  const lines = input.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  const parsedEntries: any[] = [];
+  for (const line of lines) {
+    const parsed = parseConsumptionLine(line);
+    if (!parsed) return { transition: "invalid" };
+    parsedEntries.push(parsed);
   }
-}
+  const current = ctx.sessionData.consumptionEntries || [];
+  return { transition: "valid", updatedData: { consumptionEntries: mergeConsumptionEntries(current, parsedEntries) } };
+};
 
-class ParseMilkConsumptionEntriesHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    const input = ctx.user_input;
-    if (!input) return { transition: "invalid" };
+const submitConsumptionToBackend = async (ctx: ExecutionContext): Promise<ActionResponse> => {
+  const entries = ctx.sessionData.consumptionEntries || [];
+  const entryDateStr = ctx.sessionData.entryDate;
+  const dairyId = ctx.sessionData.dairyId;
 
-    const lines = input.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-    const parsedEntries: any[] = [];
-    for (const line of lines) {
-      const parsed = parseConsumptionLine(line);
-      if (!parsed) return { transition: "invalid" };
-      parsedEntries.push(parsed);
+  if (!entryDateStr || !dairyId || entries.length === 0) {
+    return { transition: "failure" };
+  }
+
+  for (const entry of entries) {
+    utilizationRows.push({
+      date: entryDateStr,
+      milkPurpose: entry.purpose,
+      consumedQuantity: String(entry.quantity),
+      dairyId: dairyId
+    });
+  }
+  return { transition: "success" };
+};
+
+// --- Mock Repositories & Providers as Factory Objects/Closures ---
+
+const createMockSessionRepository = (): SessionRepository => {
+  return {
+    async get(phone: string): Promise<Session | null> {
+      return sessionStore.get(phone) || null;
+    },
+    async save(phone: string, session: Session): Promise<void> {
+      sessionStore.set(phone, session);
+    },
+    async delete(phone: string): Promise<void> {
+      sessionStore.delete(phone);
     }
-    const current = ctx.session_data.consumption_entries || [];
-    return { transition: "valid", updatedData: { consumption_entries: mergeConsumptionEntries(current, parsedEntries) } };
-  }
-}
+  };
+};
 
-class DisplayConsumptionSummaryHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    const entries = ctx.session_data.consumption_entries || [];
-    const date = ctx.session_data.entry_date || getIstDateString(0);
-    const lang = ctx.language;
-
-    let body = (lang === "mr" ? `${date} चे वापर नोंदी तपासा:` : `Please review your consumption entries for ${date}:`) + "\n\n";
-    if (entries.length === 0) {
-      body += (lang === "mr" ? "कोणतीही नोंद आढळली नाही." : "No entries recorded.");
-    } else {
-      entries.forEach((e: any, idx: number) => {
-        if (lang === "mr") {
-          body += `${idx + 1}. ${e.purpose} — ${e.quantity}L\n`;
-        } else {
-          body += `${idx + 1}. ${e.purpose} — ${e.quantity}L\n`;
-        }
-      });
+const createMockUserPreferenceRepository = (): UserPreferenceRepository => {
+  return {
+    async get(phone: string): Promise<UserPreferences | null> {
+      return preferencesStore.get(phone) || null;
+    },
+    async save(phone: string, preferences: UserPreferences): Promise<void> {
+      preferencesStore.set(phone, preferences);
     }
+  };
+};
 
-    ctx.addMessage({ type: "text", text: { body: body.trim() } });
-    return { transition: "default" };
-  }
-}
-
-class ParseAndUpdateConsumptionEntriesHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    const input = ctx.user_input;
-    if (!input) return { transition: "invalid" };
-
-    const lines = input.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-    const parsedEntries: any[] = [];
-    for (const line of lines) {
-      const parsed = parseConsumptionLine(line);
-      if (!parsed) return { transition: "invalid" };
-      parsedEntries.push(parsed);
-    }
-    const current = ctx.session_data.consumption_entries || [];
-    return { transition: "valid", updatedData: { consumption_entries: mergeConsumptionEntries(current, parsedEntries) } };
-  }
-}
-
-class SubmitConsumptionToBackendHandler implements IActionHandler {
-  public async execute(ctx: ExecutionContext): Promise<ActionResponse> {
-    const entries = ctx.session_data.consumption_entries || [];
-    const entryDateStr = ctx.session_data.entry_date;
-    const dairyId = ctx.session_data.dairy_id;
-
-    if (!entryDateStr || !dairyId || entries.length === 0) {
-      return { transition: "failure" };
-    }
-
-    for (const entry of entries) {
-      utilizationRows.push({
-        date: entryDateStr,
-        milkPurpose: entry.purpose,
-        consumedQuantity: String(entry.quantity),
-        dairy_id: dairyId
-      });
-    }
-    return { transition: "success" };
-  }
-}
-
-// --- Mock Repositories ---
-
-class MockSessionRepository implements ISessionRepository {
-  public async get(phone: string): Promise<Session | null> {
-    return sessionStore.get(phone) || null;
-  }
-  public async save(phone: string, session: Session): Promise<void> {
-    sessionStore.set(phone, session);
-  }
-  public async delete(phone: string): Promise<void> {
-    sessionStore.delete(phone);
-  }
-}
-
-class MockUserPreferenceRepository implements IUserPreferenceRepository {
-  public async get(phone: string): Promise<UserPreferences | null> {
-    return preferencesStore.get(phone) || null;
-  }
-  public async save(phone: string, preferences: UserPreferences): Promise<void> {
-    preferencesStore.set(phone, preferences);
-  }
-}
-
-class MockTranslationProvider implements ITranslationProvider {
-  private dict: Record<string, Record<string, string>> = {
+const mockTranslationProvider: TranslationProvider = (key: string, locale: string, placeholders?: Record<string, string>): string => {
+  const dict: Record<string, Record<string, string>> = {
     en: {
       welcomeMessage: "Welcome to Anand Dairy",
       languagePrompt: "Please select language:",
@@ -427,53 +395,49 @@ class MockTranslationProvider implements ITranslationProvider {
     }
   };
 
-  public translate(key: string, locale: string, placeholders?: Record<string, string>): string {
-    const lang = locale === "mr" ? "mr" : "en";
-    let val = this.dict[lang][key] || key;
-    if (placeholders) {
-      for (const [k, v] of Object.entries(placeholders)) {
-        val = val.replace(`{${k}}`, v);
-      }
+  const lang = locale === "mr" ? "mr" : "en";
+  let val = dict[lang][key] || key;
+  if (placeholders) {
+    for (const [k, v] of Object.entries(placeholders)) {
+      val = val.replace(`{${k}}`, String(v));
     }
-    return val;
   }
-}
+  return val;
+};
 
 describe("WhatsApp Chatbot State Engine Unit Tests", () => {
   let engine: StateEngine;
   let registry: ActionRegistry;
-  let sessionRepo: MockSessionRepository;
-  let prefRepo: MockUserPreferenceRepository;
-  let translationProvider: MockTranslationProvider;
+  let sessionRepo: SessionRepository;
+  let prefRepo: UserPreferenceRepository;
   let uiResolver: UIResolver;
 
   beforeEach(() => {
     resetMockDb();
 
-    registry = new ActionRegistry();
-    registry.register("authenticateUser", new AuthenticateUserHandler());
-    registry.register("setLanguage", new SetLanguageHandler());
-    registry.register("setTodayDateProduction", new SetTodayDateProductionHandler());
-    registry.register("setYesterdayDateProduction", new SetYesterdayDateProductionHandler());
-    registry.register("validateAndSetDateProduction", new ValidateAndSetDateProductionHandler());
-    registry.register("parseMilkProductionEntries", new ParseMilkProductionEntriesHandler());
-    registry.register("displayProductionSummary", new DisplayProductionSummaryHandler());
-    registry.register("parseAndUpdateProductionEntries", new ParseAndUpdateProductionEntriesHandler());
-    registry.register("submitProductionToBackend", new SubmitProductionToBackendHandler());
-    registry.register("setTodayDateConsumption", new SetTodayDateConsumptionHandler());
-    registry.register("setYesterdayDateConsumption", new SetYesterdayDateConsumptionHandler());
-    registry.register("validateAndSetDateConsumption", new ValidateAndSetDateConsumptionHandler());
-    registry.register("parseMilkConsumptionEntries", new ParseMilkConsumptionEntriesHandler());
-    registry.register("displayConsumptionSummary", new DisplayConsumptionSummaryHandler());
-    registry.register("parseAndUpdateConsumptionEntries", new ParseAndUpdateConsumptionEntriesHandler());
-    registry.register("submitConsumptionToBackend", new SubmitConsumptionToBackendHandler());
+    registry = createActionRegistry();
+    registry.register("authenticateUser", authenticateUser);
+    registry.register("setLanguage", setLanguage);
+    registry.register("setTodayDateProduction", setTodayDateProduction);
+    registry.register("setYesterdayDateProduction", setYesterdayDateProduction);
+    registry.register("validateAndSetDateProduction", validateAndSetDateProduction);
+    registry.register("parseMilkProductionEntries", parseMilkProductionEntries);
+    registry.register("displayProductionSummary", displayProductionSummary);
+    registry.register("parseAndUpdateProductionEntries", parseAndUpdateProductionEntries);
+    registry.register("submitProductionToBackend", submitProductionToBackend);
+    registry.register("setTodayDateConsumption", setTodayDateConsumption);
+    registry.register("setYesterdayDateConsumption", setYesterdayDateConsumption);
+    registry.register("validateAndSetDateConsumption", validateAndSetDateConsumption);
+    registry.register("parseMilkConsumptionEntries", parseMilkConsumptionEntries);
+    registry.register("displayConsumptionSummary", displayConsumptionSummary);
+    registry.register("parseAndUpdateConsumptionEntries", parseAndUpdateConsumptionEntries);
+    registry.register("submitConsumptionToBackend", submitConsumptionToBackend);
 
-    sessionRepo = new MockSessionRepository();
-    prefRepo = new MockUserPreferenceRepository();
-    translationProvider = new MockTranslationProvider();
-    uiResolver = new UIResolver({ translationProvider });
+    sessionRepo = createMockSessionRepository();
+    prefRepo = createMockUserPreferenceRepository();
+    uiResolver = createUIResolver({ translationProvider: mockTranslationProvider });
 
-    engine = new StateEngine({
+    engine = createStateEngine({
       sessionRepository: sessionRepo,
       actionRegistry: registry,
       preferenceRepository: prefRepo,
@@ -510,7 +474,7 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
 
     let session = await sessionRepo.get(phone);
     expect(session).not.toBeNull();
-    expect(session?.current_state).toBe("languageSelection");
+    expect(session?.currentState).toBe("languageSelection");
 
     // Step B: Select Marathi (option 2)
     response = await engine.advance(phone, workflowConfig, "2", null);
@@ -520,7 +484,7 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
     expect(response[0].interactive.action.buttons[0].reply.title).toBe("Add Milk Production");
 
     session = await sessionRepo.get(phone);
-    expect(session?.current_state).toBe("mainMenu");
+    expect(session?.currentState).toBe("mainMenu");
     expect(session?.language).toBe("mr");
 
     // Step C: Select Add Milk Production (option 1)
@@ -530,17 +494,17 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
     expect(response[0].interactive.body.text).toBe("दूध नोंदीसाठी तारीख निवडा:");
 
     session = await sessionRepo.get(phone);
-    expect(session?.current_state).toBe("dateSelectionProduction");
+    expect(session?.currentState).toBe("dateSelectionProduction");
 
     // Step D: Select Today (option 1)
     response = await engine.advance(phone, workflowConfig, "1", null);
 
-    expect(response.length).toBe(2);
+    expect(response.length).toBe(1);
     expect(response[0].text.body).toContain("तुम्ही आता दूध उत्पादन डेटा जोडू शकता");
     
     session = await sessionRepo.get(phone);
-    expect(session?.current_state).toBe("milkEntryInput");
-    expect(session?.context_data.entry_date).toBe(getIstDateString(0));
+    expect(session?.currentState).toBe("milkEntryInput");
+    expect(session?.contextData.entryDate).toBe(getIstDateString(0));
 
     // Step E: Send cow milk entries
     const inputBlock = "Gauri, M=8, E=6\nLaxmi, Morning Milk=0, Evening Milk=5";
@@ -550,8 +514,8 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
     expect(response[0].interactive.body.text).toBe("तुम्हाला आणखी जोडायचे आहे का?");
 
     session = await sessionRepo.get(phone);
-    expect(session?.current_state).toBe("addMoreProductionPrompt");
-    expect(session?.context_data.milk_entries.length).toBe(2);
+    expect(session?.currentState).toBe("addMoreProductionPrompt");
+    expect(session?.contextData.milkEntries.length).toBe(2);
 
     // Step F: Reply "Done" (option 2)
     response = await engine.advance(phone, workflowConfig, "2", null);
@@ -563,7 +527,7 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
     expect(response[1].interactive.body.text).toContain("तपासा");
 
     session = await sessionRepo.get(phone);
-    expect(session?.current_state).toBe("confirmOrEditProduction");
+    expect(session?.currentState).toBe("confirmOrEditProduction");
 
     // Step G: Confirm & Submit (option 1)
     response = await engine.advance(phone, workflowConfig, "1", null);
@@ -588,19 +552,19 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
     const phone = "+919876543210";
     
     const initialSession: Session = {
-      phone_number: phone,
-      current_state: "confirmOrEditProduction",
+      phoneNumber: phone,
+      currentState: "confirmOrEditProduction",
       language: "en",
-      context_data: {
-        dairy_id: 1,
-        entry_date: getIstDateString(0),
-        milk_entries: [
-          { cow_name: "Gauri", morning: 8, evening: 6 },
-          { cow_name: "Laxmi", morning: 0, evening: 5 }
+      contextData: {
+        dairyId: 1,
+        entryDate: getIstDateString(0),
+        milkEntries: [
+          { cowName: "Gauri", morning: 8, evening: 6 },
+          { cowName: "Laxmi", morning: 0, evening: 5 }
         ]
       },
-      created_at: new Date(),
-      updated_at: new Date()
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
     await sessionRepo.save(phone, initialSession);
 
@@ -611,7 +575,7 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
     expect(response[0].text.body).toBe("Please re-enter the corrected record(s)");
 
     let session = await sessionRepo.get(phone);
-    expect(session?.current_state).toBe("editProductionEntry");
+    expect(session?.currentState).toBe("editProductionEntry");
 
     // Submit correction for Gauri (morning increased to 10)
     response = await engine.advance(phone, workflowConfig, "Gauri, M=10, E=6", null);
@@ -621,9 +585,9 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
     expect(response[0].text.body).toContain("Laxmi — Morning: 0L, Evening: 5L"); // unchanged
 
     session = await sessionRepo.get(phone);
-    expect(session?.current_state).toBe("confirmOrEditProduction");
-    expect(session?.context_data.milk_entries.length).toBe(2);
-    expect(session?.context_data.milk_entries[0].morning).toBe(10);
+    expect(session?.currentState).toBe("confirmOrEditProduction");
+    expect(session?.contextData.milkEntries.length).toBe(2);
+    expect(session?.contextData.milkEntries[0].morning).toBe(10);
   });
 
   test("4. Session Timeout - resets active session and shows warning", async () => {
@@ -631,16 +595,16 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
 
     const expiredTime = new Date(Date.now() - 11 * 60 * 1000);
     const expiredSession: Session = {
-      phone_number: phone,
-      current_state: "confirmOrEditProduction",
+      phoneNumber: phone,
+      currentState: "confirmOrEditProduction",
       language: "en",
-      context_data: {
-        dairy_id: 1,
-        entry_date: getIstDateString(0),
-        milk_entries: [{ cow_name: "Gauri", morning: 8, evening: 6 }]
+      contextData: {
+        dairyId: 1,
+        entryDate: getIstDateString(0),
+        milkEntries: [{ cowName: "Gauri", morning: 8, evening: 6 }]
       },
-      created_at: expiredTime,
-      updated_at: expiredTime
+      createdAt: expiredTime,
+      updatedAt: expiredTime
     };
     await sessionRepo.save(phone, expiredSession);
 
@@ -652,22 +616,22 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
     expect(response[2].interactive.body.text).toBe("Please select language:");
 
     const session = await sessionRepo.get(phone);
-    expect(session?.current_state).toBe("languageSelection");
-    expect(session?.context_data.milk_entries).toBeUndefined();
-    expect(session?.context_data.entry_date).toBeUndefined();
-    expect(session?.context_data.userName).toBe("Ramesh");
-    expect(session?.context_data.dairy_id).toBe(1);
+    expect(session?.currentState).toBe("languageSelection");
+    expect(session?.contextData.milkEntries).toBeUndefined();
+    expect(session?.contextData.entryDate).toBeUndefined();
+    expect(session?.contextData.userName).toBe("Ramesh");
+    expect(session?.contextData.dairyId).toBe(1);
   });
 
   test("5. Invalid input on prompt - re-prompts user instead of failing", async () => {
     const phone = "+919876543210";
     const session: Session = {
-      phone_number: phone,
-      current_state: "languageSelection",
+      phoneNumber: phone,
+      currentState: "languageSelection",
       language: "en",
-      context_data: {},
-      created_at: new Date(),
-      updated_at: new Date()
+      contextData: {},
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
     await sessionRepo.save(phone, session);
 
@@ -678,6 +642,80 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
     expect(response[1].interactive.body.text).toBe("Please select language:");
 
     const currentSession = await sessionRepo.get(phone);
-    expect(currentSession?.current_state).toBe("languageSelection");
+    expect(currentSession?.currentState).toBe("languageSelection");
+  });
+
+  test("6. Fail-Fast Workflow Validation - throws validation errors", () => {
+    const invalidConfig = {
+      workflow: "test",
+      version: "1.0",
+      initialState: "nonexistent",
+      states: {
+        hello: {
+          type: "message",
+          transitions: {
+            default: "world"
+          }
+        }
+      }
+    };
+    expect(() => {
+      createStateEngine({
+        sessionRepository: sessionRepo,
+        actionRegistry: registry,
+        uiResolver,
+        workflowConfig: invalidConfig
+      });
+    }).toThrow("Workflow validation failed: Initial state \"nonexistent\" is not defined in the states list.");
+  });
+
+  test("7. Translation Fallback - uses default config template message when translation key is not found", async () => {
+    const customConfig = {
+      workflow: "test_fallback",
+      version: "1.0",
+      initialState: "init",
+      states: {
+        init: {
+          actor: "bot",
+          type: "message",
+          transitions: {
+            default: "start"
+          }
+        },
+        start: {
+          actor: "bot",
+          type: "message",
+          message: {
+            text: "Hello, {{userName}}!",
+            translationKey: "nonexistentTranslationKey"
+          },
+          transitions: {
+            default: "END"
+          }
+        },
+        END: {
+          actor: "bot",
+          type: "message",
+          message: "Thank you!",
+          termination: true
+        }
+      }
+    };
+    const phone = "+919999888877";
+    const testSession: Session = {
+      phoneNumber: phone,
+      currentState: "init",
+      language: "en",
+      contextData: { userName: "John" },
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    await sessionRepo.save(phone, testSession);
+
+    const response = await engine.advance(phone, customConfig, null, null);
+    expect(response.length).toBe(2);
+    expect(response[0].text.body).toBe("Hello, John!");
+    expect(response[1].text.body).toBe("Thank you!");
   });
 });
+

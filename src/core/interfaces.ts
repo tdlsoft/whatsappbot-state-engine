@@ -1,15 +1,15 @@
 import { ExecutionContext } from "./ExecutionContext";
 
 export interface Session {
-  phone_number: string;
-  current_state: string;
+  phoneNumber: string;
+  currentState: string;
   language: string;
-  context_data: Record<string, any>;
-  updated_at: Date;
-  created_at: Date;
+  contextData: Record<string, any>;
+  updatedAt: Date;
+  createdAt: Date;
 }
 
-export interface ISessionRepository {
+export interface SessionRepository {
   get(phone: string): Promise<Session | null>;
   save(phone: string, session: Session): Promise<void>;
   delete(phone: string): Promise<void>;
@@ -20,25 +20,21 @@ export interface ActionResponse {
   updatedData?: Record<string, any>;
 }
 
-export interface IActionHandler {
-  execute(ctx: ExecutionContext, params?: any): Promise<ActionResponse>;
-}
+export type ActionHandler = (ctx: ExecutionContext, params?: any) => Promise<ActionResponse>;
 
-export interface IActionRegistry {
-  get(name: string): IActionHandler | null;
-  register(name: string, handler: IActionHandler): void;
+export interface ActionRegistry {
+  get(name: string): ActionHandler | null;
+  register(name: string, handler: ActionHandler): void;
 }
 
 export interface UserPreferences {
-  phone_number: string;
+  phoneNumber: string;
   language: string;
 }
 
-export interface IUserPreferenceRepository {
+export interface UserPreferenceRepository {
   get(phone: string): Promise<UserPreferences | null>;
   save(phone: string, preferences: UserPreferences): Promise<void>;
 }
 
-export interface ITranslationProvider {
-  translate(key: string, locale: string, placeholders?: Record<string, string>): string;
-}
+export type TranslationProvider = (key: string, locale: string, placeholders?: Record<string, string>) => string;

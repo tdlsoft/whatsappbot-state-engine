@@ -1,33 +1,34 @@
-export class LRUCache<K, V> {
-  private capacity: number;
-  private cache: Map<K, V> = new Map();
+export interface LRUCache<K, V> {
+  get(key: K): V | null;
+  set(key: K, value: V): void;
+  delete(key: K): void;
+}
 
-  constructor(capacity: number) {
-    this.capacity = capacity;
-  }
+export function createLRUCache<K, V>(capacity: number): LRUCache<K, V> {
+  const cache = new Map<K, V>();
 
-  public get(key: K): V | null {
-    if (!this.cache.has(key)) return null;
-    
-    const val = this.cache.get(key)!;
-    this.cache.delete(key);
-    this.cache.set(key, val);
-    return val;
-  }
-
-  public set(key: K, value: V): void {
-    if (this.cache.has(key)) {
-      this.cache.delete(key);
-    } else if (this.cache.size >= this.capacity) {
-      const leastRecentlyUsedKey = this.cache.keys().next().value;
-      if (leastRecentlyUsedKey !== undefined) {
-        this.cache.delete(leastRecentlyUsedKey);
+  return {
+    get(key: K): V | null {
+      if (!cache.has(key)) return null;
+      
+      const val = cache.get(key)!;
+      cache.delete(key);
+      cache.set(key, val);
+      return val;
+    },
+    set(key: K, value: V): void {
+      if (cache.has(key)) {
+        cache.delete(key);
+      } else if (cache.size >= capacity) {
+        const leastRecentlyUsedKey = cache.keys().next().value;
+        if (leastRecentlyUsedKey !== undefined) {
+          cache.delete(leastRecentlyUsedKey);
+        }
       }
+      cache.set(key, value);
+    },
+    delete(key: K): void {
+      cache.delete(key);
     }
-    this.cache.set(key, value);
-  }
-
-  public delete(key: K): void {
-    this.cache.delete(key);
-  }
+  };
 }
