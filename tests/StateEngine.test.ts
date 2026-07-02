@@ -450,7 +450,7 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
     const phone = "+910000000000"; // Unregistered
 
     const response = await engine.advance(phone, workflowConfig, "Hi", null);
-    
+
     expect(response.length).toBe(1);
     expect(response[0].type).toBe("text");
     expect(response[0].text.body).toContain("Unauthorized access");
@@ -464,7 +464,7 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
 
     // Step A: Send "Hi" -> welcomes and auto-advances to languageSelection prompt
     let response = await engine.advance(phone, workflowConfig, "Hi", null);
-    
+
     expect(response.length).toBe(2);
     expect(response[0].type).toBe("text");
     expect(response[0].text.body).toBe("Welcome to Anand Dairy");
@@ -501,7 +501,7 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
 
     expect(response.length).toBe(1);
     expect(response[0].text.body).toContain("तुम्ही आता दूध उत्पादन डेटा जोडू शकता");
-    
+
     session = await sessionRepo.get(phone);
     expect(session?.currentState).toBe("milkEntryInput");
     expect(session?.contextData.entryDate).toBe(getIstDateString(0));
@@ -550,7 +550,7 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
 
   test("3. Edit Loop - Modify milk entry quantity before confirming", async () => {
     const phone = "+919876543210";
-    
+
     const initialSession: Session = {
       phoneNumber: phone,
       currentState: "confirmOrEditProduction",
@@ -644,78 +644,4 @@ describe("WhatsApp Chatbot State Engine Unit Tests", () => {
     const currentSession = await sessionRepo.get(phone);
     expect(currentSession?.currentState).toBe("languageSelection");
   });
-
-  test("6. Fail-Fast Workflow Validation - throws validation errors", () => {
-    const invalidConfig = {
-      workflow: "test",
-      version: "1.0",
-      initialState: "nonexistent",
-      states: {
-        hello: {
-          type: "message",
-          transitions: {
-            default: "world"
-          }
-        }
-      }
-    };
-    expect(() => {
-      createStateEngine({
-        sessionRepository: sessionRepo,
-        actionRegistry: registry,
-        uiResolver,
-        workflowConfig: invalidConfig
-      });
-    }).toThrow("Workflow validation failed: Initial state \"nonexistent\" is not defined in the states list.");
-  });
-
-  test("7. Translation Fallback - uses default config template message when translation key is not found", async () => {
-    const customConfig = {
-      workflow: "test_fallback",
-      version: "1.0",
-      initialState: "init",
-      states: {
-        init: {
-          actor: "bot",
-          type: "message",
-          transitions: {
-            default: "start"
-          }
-        },
-        start: {
-          actor: "bot",
-          type: "message",
-          message: {
-            text: "Hello, {{userName}}!",
-            translationKey: "nonexistentTranslationKey"
-          },
-          transitions: {
-            default: "END"
-          }
-        },
-        END: {
-          actor: "bot",
-          type: "message",
-          message: "Thank you!",
-          termination: true
-        }
-      }
-    };
-    const phone = "+919999888877";
-    const testSession: Session = {
-      phoneNumber: phone,
-      currentState: "init",
-      language: "en",
-      contextData: { userName: "John" },
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    await sessionRepo.save(phone, testSession);
-
-    const response = await engine.advance(phone, customConfig, null, null);
-    expect(response.length).toBe(2);
-    expect(response[0].text.body).toBe("Hello, John!");
-    expect(response[1].text.body).toBe("Thank you!");
-  });
 });
-

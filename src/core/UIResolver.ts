@@ -1,17 +1,20 @@
-import { TranslationProvider } from "./interfaces";
+import { TranslationProvider, Logger } from "./interfaces";
 import { ExecutionContext } from "./ExecutionContext";
 
 export interface UIResolverOptions {
   translationProvider?: TranslationProvider;
+  logger?: Logger;
 }
 
 export interface UIResolver {
   resolve(stateConfig: any, ctx: ExecutionContext): any;
   translationProvider?: TranslationProvider;
+  logger?: Logger;
 }
 
 export function createUIResolver(options?: UIResolverOptions): UIResolver {
   const translationProvider = options?.translationProvider;
+  const logger = options?.logger;
 
   return {
     resolve(stateConfig: any, ctx: ExecutionContext): any {
@@ -53,6 +56,7 @@ export function createUIResolver(options?: UIResolverOptions): UIResolver {
 
       // 3. Fallback to simple text message if no options are present or if type is message
       if (optionsList.length === 0 || stateConfig.type === "message") {
+        logger?.debug?.(`Resolving UI as plain text message for state: ${stateConfig.name || "unknown"}`);
         return {
           type: "text",
           text: { body: bodyText }
@@ -68,6 +72,7 @@ export function createUIResolver(options?: UIResolverOptions): UIResolver {
 
       if (optionsList.length <= maxButtons && !hasLongLabel) {
         // Format as Quick Reply Buttons
+        logger?.debug?.(`Resolving UI as Quick Reply Buttons for state: ${stateConfig.name || "unknown"} (options count: ${optionsList.length})`);
         return {
           type: "interactive",
           interactive: {
@@ -86,6 +91,12 @@ export function createUIResolver(options?: UIResolverOptions): UIResolver {
         };
       } else if (optionsList.length <= maxListItems) {
         // Format as List Message (Dropdown)
+        if (optionsList.length > maxButtons) {
+          logger?.debug?.(`UI formatted as List Message because option count (${optionsList.length}) exceeds max quick reply buttons (${maxButtons})`);
+        } else if (hasLongLabel) {
+          logger?.debug?.(`UI formatted as List Message because one or more button labels exceed max length of ${maxButtonLabelLength} chars`);
+        }
+
         const listButtonText = stateConfig.listButtonText || (rawMessage && typeof rawMessage === "object" ? rawMessage.listButtonText : undefined) || "Select Option";
         const listSectionTitle = stateConfig.listSectionTitle || (rawMessage && typeof rawMessage === "object" ? rawMessage.listSectionTitle : undefined) || "Options";
 
@@ -111,6 +122,7 @@ export function createUIResolver(options?: UIResolverOptions): UIResolver {
         };
       } else {
         // Format as Numbered Text Menu
+        logger?.warn?.(`Option count (${optionsList.length}) exceeds maximum limit for interactive list (${maxListItems}) in state ${stateConfig.name || "unknown"}. Falling back to Numbered Text Menu.`);
         let textMenu = bodyText + "\n\n";
         optionsList.forEach((opt: any, index: number) => {
           textMenu += `${index + 1}. ${opt.label}\n`;
@@ -121,6 +133,7 @@ export function createUIResolver(options?: UIResolverOptions): UIResolver {
         };
       }
     },
-    translationProvider
+    translationProvider,
+    logger
   };
 }
