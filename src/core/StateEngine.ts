@@ -296,10 +296,16 @@ export function createStateEngine(options: StateEngineOptions): StateEngine {
           throw new Error(err);
         }
 
-        logger?.info?.(`Resolving landing UI for state: ${nextStateName}`);
-        const landingUi = uiResolver.resolve(nextStateConfig, ctx);
-        if (landingUi && (landingUi.type !== "text" || (landingUi.text && landingUi.text.body))) {
-          ctx.addMessage(landingUi);
+        const isSameState = nextStateName === currentStateName;
+        const alreadyHasMessage = ctx.messages.length > 0;
+        const shouldSuppress = nextStateConfig.suppressPromptOnSelfTransition;
+
+        if (!isSameState || !alreadyHasMessage || !shouldSuppress) {
+          logger?.info?.(`Resolving landing UI for state: ${nextStateName}`);
+          const landingUi = uiResolver.resolve(nextStateConfig, ctx);
+          if (landingUi && (landingUi.type !== "text" || (landingUi.text && landingUi.text.body))) {
+            ctx.addMessage(landingUi);
+          }
         }
 
         session.currentState = nextStateName;
