@@ -45,6 +45,18 @@ export function createUIResolver(options?: UIResolverOptions): UIResolver {
         }
       }
 
+      // Interpolate placeholders {{key}} into bodyText from sessionData and params
+      const placeholders: Record<string, any> = {
+        ...ctx.sessionData,
+        ...(stateConfig.params || {}),
+        ...(rawMessage && typeof rawMessage === "object" ? rawMessage.placeholders : {})
+      };
+      for (const [key, value] of Object.entries(placeholders)) {
+        if (value !== undefined && value !== null) {
+          bodyText = bodyText.split(`{{${key}}}`).join(String(value));
+        }
+      }
+
       // 2. Resolve options
       let optionsList = stateConfig.buttons || (rawMessage && typeof rawMessage === "object" ? rawMessage.buttons : []) || [];
       if (translationProvider) {
