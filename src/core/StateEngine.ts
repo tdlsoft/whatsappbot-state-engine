@@ -220,6 +220,20 @@ export function createStateEngine(options: StateEngineOptions): StateEngine {
           throw new Error(err);
         }
 
+        // Execute preActionStep if defined on the state
+        if (nextStateConfig.preActionStep) {
+          logger?.info?.(`Executing preActionStep: ${nextStateConfig.preActionStep} in state: ${nextStateName}`);
+          const preHandler = actionRegistry.get(nextStateConfig.preActionStep);
+          if (preHandler) {
+            const preResult = await preHandler(ctx, nextStateConfig.params);
+            if (preResult?.updatedData) {
+              ctx.updateData(preResult.updatedData);
+            }
+          } else {
+            logger?.warn?.(`No handler registered for preActionStep: "${nextStateConfig.preActionStep}" in state: ${nextStateName}`);
+          }
+        }
+
         // Handle immediate termination state
         if (nextStateConfig.termination) {
           logger?.info?.(`Termination state reached at: ${nextStateName}`);
@@ -299,6 +313,19 @@ export function createStateEngine(options: StateEngineOptions): StateEngine {
         const isSameState = nextStateName === currentStateName;
         const alreadyHasMessage = ctx.messages.length > 0;
         const shouldSuppress = nextStateConfig.suppressPromptOnSelfTransition;
+
+        if (nextStateConfig.preActionStep) {
+          logger?.info?.(`Executing preActionStep on landing state: ${nextStateConfig.preActionStep} in state: ${nextStateName}`);
+          const preHandler = actionRegistry.get(nextStateConfig.preActionStep);
+          if (preHandler) {
+            const preResult = await preHandler(ctx, nextStateConfig.params);
+            if (preResult?.updatedData) {
+              ctx.updateData(preResult.updatedData);
+            }
+          } else {
+            logger?.warn?.(`No handler registered for preActionStep: "${nextStateConfig.preActionStep}" in state: ${nextStateName}`);
+          }
+        }
 
         if (!isSameState || !alreadyHasMessage || !shouldSuppress) {
           logger?.info?.(`Resolving landing UI for state: ${nextStateName}`);

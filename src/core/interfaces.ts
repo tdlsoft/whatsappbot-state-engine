@@ -46,3 +46,29 @@ export interface Logger {
   debug(message: string, meta?: any): void;
 }
 
+
+export interface WorkflowState {
+  actor?: "user" | "bot" | string;
+  type?: "message" | "prompt" | "action" | "input" | string;
+  message?: string | string[] | any;
+  messageKey?: string;
+  action?: string;
+  actionHook?: string;
+  preActionStep?: string;
+  dynamicSource?: string;
+  buttons?: any[];
+  params?: any;
+  transitions?: Record<string, string>;
+  termination?: boolean;
+  suppressPromptOnSelfTransition?: boolean;
+  errorMessageKey?: string;
+  listButtonText?: string;
+  listSectionTitle?: string;
+  [key: string]: any;
+}
+
+export interface WorkflowConfig {
+  initialState: string;
+  states: Record<string, WorkflowState>;
+  [key: string]: any;
+}
