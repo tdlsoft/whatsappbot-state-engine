@@ -97,8 +97,19 @@ export function createUIResolver(options?: UIResolverOptions): UIResolver {
           logger?.debug?.(`UI formatted as List Message because one or more button labels exceed max length of ${maxButtonLabelLength} chars`);
         }
 
-        const listButtonText = stateConfig.listButtonText || (rawMessage && typeof rawMessage === "object" ? rawMessage.listButtonText : undefined) || "Select Option";
-        const listSectionTitle = stateConfig.listSectionTitle || (rawMessage && typeof rawMessage === "object" ? rawMessage.listSectionTitle : undefined) || "Options";
+        let listButtonText = stateConfig.listButtonText;
+        let listSectionTitle = stateConfig.listSectionTitle;
+
+        if (!listButtonText || !listSectionTitle) {
+          const err = `Interactive list menu state "${stateConfig.name || "unknown"}" is missing listButtonText or listSectionTitle configuration.`;
+          logger?.error?.(err);
+          throw new Error(err);
+        }
+
+        if (translationProvider) {
+          listButtonText = translationProvider(listButtonText, locale) || listButtonText;
+          listSectionTitle = translationProvider(listSectionTitle, locale) || listSectionTitle;
+        }
 
         return {
           type: "interactive",
